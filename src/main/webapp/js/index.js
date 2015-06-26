@@ -23,6 +23,16 @@ startButton.onclick = start;
 callButton.onclick = call;
 hangupButton.onclick = hangup;
 
+localVideo.oncanplay = function() {
+  console.log('oncanplay');
+  for(var prop in connections){
+      if(map.hasOwnProperty(prop)){
+          console.log(' add local stream when stream is ready' );
+          connections[prop].addStream(localStream);
+      }
+  }
+};
+
 var room = '/server/1';
 var mediaConstraints = {
     'mandatory' : {
@@ -86,7 +96,7 @@ socket.onmessage = function(message) {
     if(connections[sessionId]!= null ) {
       console.log('00 connection not null');
     }
-     console.log('msg.data ' + msg.data);
+    console.log('msg.data ' + msg.data);
     if(socket.sessionId != sessionId) {
       connections[sessionId].setRemoteDescription(new RTCSessionDescription(msg.data));
       offerFinished[sessionId] = true;
@@ -195,7 +205,7 @@ function getVideoElement(sessionId) {
 
 window.onload = function() {
   initLocalMedia();
-//  waittingForWebSocket(socket,queryPeer);
+  waittingForWebSocket(socket,queryPeer);
 };
 
 function initLocalMedia() {
@@ -217,6 +227,9 @@ function gotStream(stream) {
   localStream = stream;
   window.localstream = stream;
   callButton.disabled = false;
+//  var audioTracks = window.localstream.getAudioTracks();
+//  var videoTracks = window.localstream.getVideoTracks();
+
 }
 
 function start() {
@@ -232,7 +245,7 @@ function call() {
     callButton.disabled = true;
     hangupButton.disabled = false;
     trace("Starting call");
-    queryPeer();
+//    queryPeer();
   }
 
 function waittingForWebSocket(webSocket, callback){
