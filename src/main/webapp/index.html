@@ -1,9 +1,29 @@
 <!DOCTYPE html>
 <html>
-<head lang="en">
-    <meta charset="UTF-8">
-    <title>TRedirecting...</title>      
-    <meta http-equiv="refresh" content="0;URL='app'" />
-    <title></title>
+<head>
+<meta charset="UTF-8">
+<title>TRedirecting...</title>
+<title>index</title>
+<link rel="stylesheet" href="css/main.css" />
+<link rel="stylesheet" href="css/index.css" />
 </head>
+<body>
+  <div id="container">
+
+    <video id="localVideo" autoplay muted></video>
+    <!-- <video id="remoteVideo" autoplay muted></video> -->
+    <div id="remoteVideo"></div>
+
+    <div>
+      <button id="startButton">Start</button>
+      <button id="callButton">Call</button>
+      <button id="hangupButton">Hang Up</button>
+    </div>
+
+  </div>
+
+  <script src="js/adapter.js"></script>
+  <script src="js/index.js"></script>
+
+</body>
 </html>
