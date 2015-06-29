@@ -64,8 +64,8 @@ socket.onmessage = function(message) {
       socket.send(JSON.stringify({
         type : 'received_answer',
         data : description,
-        sessionId : socket.sessionId
-
+        sessionId : socket.sessionId,
+        peerSessionId : sessionId
       }));
     }, null, mediaConstraints);
     getVideoElement(sessionId);
@@ -122,7 +122,8 @@ socket.onmessage = function(message) {
       peerSessionIdArray=peerSessionIds.split(",");
       for (var i=0;i<peerSessionIdArray.length ;i++ )
       {
-        console.log(peerSessionIdArray[i]);
+        var peerId = peerSessionIdArray[i];
+        console.log(peerId);
         console.log('query peer prepare to create connection for session id : ' + peerSessionIdArray[i]);
         var currentConnection = createConnection(peerSessionIdArray[i]);
         connections[peerSessionIdArray[i]] = currentConnection;
@@ -131,15 +132,7 @@ socket.onmessage = function(message) {
            trace("Added localStream to Connection");
         }
         getVideoElement(peerSessionIdArray[i]);
-        currentConnection.createOffer(function(description) {
-          currentConnection.setLocalDescription(description);
-          socket.send(JSON.stringify({
-          type : 'received_offer',
-          data : description,
-          sessionId : socket.sessionId
-//          peerSessionId : peerSessionIdArray[i]
-            }));
-          },handleError,mediaConstraints);
+        createOffer(currentConnection,peerId);
       }
 
     }
@@ -156,10 +149,39 @@ socket.onmessage = function(message) {
   }
 };
 
+function createOffer(currentConnection,peerId) {
+  currentConnection.createOffer(function(description) {
+        currentConnection.setLocalDescription(description);
+        socket.send(JSON.stringify({
+        type : 'received_offer',
+        data : description,
+        sessionId : socket.sessionId,
+        peerSessionId : peerId
+          }));
+        },handleError,mediaConstraints);
+}
+
 function createConnection(sessionId) {
   console.log('create connection ' + sessionId);
   var peerConnection  = new RTCPeerConnection(servers);
-  peerConnection.onicecandidate = gotLocalIceCandidate;
+//  peerConnection.onicecandidate = gotLocalIceCandidate;
+  peerConnection.onicecandidate = function(e){
+    trace("got local ice candidate");
+      if (e.candidate) {
+      console.log('sending received candidate');
+      socket.send(JSON.stringify({
+        type : 'received_candidate',
+        sessionId : socket.sessionId,
+        peerSessionId : sessionId,
+//	      candidate : e.candidate
+        data : {
+          label : e.candidate.sdpMLineIndex,
+          id : e.candidate.sdpMid,
+          candidate : e.candidate.candidate
+        }
+      }));
+    }
+    }
   peerConnection.onaddstream = function(e) {
     var remoteVideo = getVideoElement(sessionId)
     attachMediaStream(remoteVideo, event.stream);

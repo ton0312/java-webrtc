@@ -81,10 +81,13 @@ public class WebSocketListener {
         case "received_offer":
         case "received_candidate":
         case "received_answer":
+            String peerSessionId = o.getString("peerSessionId");
+            System.out.println(" message session Id : " + peerSessionId);
             rooms.getOrDefault(room, EMPTY_ROOM).parallelStream()
-                .filter(s -> s != peer && s.isOpen())
-                .forEach(s -> s.getAsyncRemote().sendObject(message));
+            .filter(s -> s.getId().equals(peerSessionId) && s.isOpen())
+            .forEach(s -> s.getAsyncRemote().sendObject(message));
             break;
+
 /*            String answerSessionId = o.getString("sessionId");
             System.out.println(" peer received_answer " + peer.getId());
             System.out.println(" ");
