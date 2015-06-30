@@ -25,6 +25,12 @@ video#video1 {
   margin: 0 20px 20px 0;
 }
 
+label {
+  display:block;
+  background-color:CornflowerBlue ;
+  border-bottom: 1px solid #aaa;
+}
+
 @media screen and (max-width: 400px) {
   button {
     margin: 0 11px 10px 0;

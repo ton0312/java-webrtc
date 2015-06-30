@@ -1,8 +1,17 @@
 'use strict';
 
 var localVideo = document.querySelector('video#localVideo');
+
+var sendButton = document.getElementById("sendButton");
+var sendTextarea = document.getElementById("dataChannelSend");
+var receiveTextarea = document.getElementById("dataChannelReceive");
+
+sendButton.onclick = sendData;
+var labelId = 0;
+
 var localStream;
 var connections = {};
+var datachannels = {};
 
 var room = '/server/1';
 var mediaConstraints = {
@@ -157,7 +166,58 @@ function createConnection(sessionId) {
     attachMediaStream(remoteVideo, event.stream);
     trace("Received remote stream");
   };
+  var sendChannel = peerConnection.createDataChannel("",{reliable: false});
+  datachannels[sessionId] = sendChannel;
+  sendChannel.onmessage = handleMessage;
+  sendChannel.onopen = function() {
+    var readyState = sendChannel.readyState;
+    trace('Send channel state is: ' + readyState);
+    enableMessageInterface(readyState == "open");
+  };
+  sendChannel.onclose = function() {
+    var readyState = sendChannel.readyState;
+    trace('Send channel state is: ' + readyState);
+    enableMessageInterface(readyState == "open");
+  };
+
+  peerConnection.ondatachannel = gotReceiveChannel;
   return peerConnection
+}
+
+function enableMessageInterface(shouldEnable) {
+    if (shouldEnable) {
+    dataChannelSend.disabled = false;
+    dataChannelSend.focus();
+    dataChannelSend.placeholder = "";
+    sendButton.disabled = false;
+  } else {
+    dataChannelSend.disabled = true;
+    sendButton.disabled = true;
+  }
+}
+
+function handleMessage(event) {
+    trace('Received message: ' + event.data);
+    var newLine = document.createElement('label');
+    newLine.id =labelId;
+    labelId +=1;
+    newLine.innerHTML = event.data + '\n';
+    receiveTextarea.appendChild(newLine);
+  }
+
+
+function gotReceiveChannel(event) {
+    trace('Receive Channel Callback');
+    var receiveChannel = event.channel;
+    receiveChannel.onmessage = handleMessage;
+    receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);
+    receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);
+  }
+
+function handleReceiveChannelStateChange(receiveChannel) {
+  var readyState = receiveChannel.readyState;
+  trace('Receive channel state is: ' + readyState);
+  enableMessageInterface(readyState == "open");
 }
 
 function getVideoElement(sessionId) {
@@ -230,6 +290,29 @@ function queryPeer() {
         type : 'query_peer'
       }));
 }
+
+
+function sendData() {
+    var data = sendTextarea.value;
+
+    for(var prop in datachannels){
+        if(datachannels.hasOwnProperty(prop)){
+            console.log('key is ' + prop +' and value is' + datachannels[prop]);
+            datachannels[prop].send(data);
+        }
+    }
+
+    trace('Sent data: ' + data);
+    var newLine = document.createElement('label');
+    newLine.id =labelId;
+    labelId +=1;
+    newLine.style.color='LightSkyBlue ';
+    newLine.innerHTML = data + '\n';
+    receiveTextarea.appendChild(newLine);
+    sendTextarea.value = '';
+  }
+
+
 
 function gotRemoteStream(event){
   var remoteVideo = document.createElement('video');
