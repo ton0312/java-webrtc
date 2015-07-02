@@ -19,6 +19,27 @@
       <div id="dataChannelReceive"></div>
     </div>
     <button id="sendButton" disabled>Send</button>
+
+    <section>
+      <form id="fileInfo">
+        <input type="file" id="fileInput" name="files"/>
+      </form>
+
+      <div class="progress">
+        <div class="label">Send progress: </div>
+        <progress id="sendProgress" max="0" value="0"></progress>
+      </div>
+
+      <div class="progress">
+        <div class="label">Receive progress: </div>
+        <progress id="receiveProgress" max="0" value="0"></progress>
+      </div>
+
+      <a id="received"></a>
+
+    </section>
+
+
   </div>
 
   <script src="js/adapter.js"></script>

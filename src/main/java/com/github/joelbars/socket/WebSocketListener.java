@@ -96,6 +96,11 @@ public class WebSocketListener {
             .forEach(s -> s.getAsyncRemote().sendObject(message));
             break;
 */
+        case "send_file":
+            rooms.getOrDefault(room, EMPTY_ROOM).parallelStream()
+            .filter(s -> s != peer && s.isOpen())
+            .forEach(s -> s.getAsyncRemote().sendObject(message));
+            break;
         case "query_peer":
             List<String> sessionIdList = new ArrayList<String>();
             for (Session session :  rooms.get(room)) {
@@ -106,10 +111,11 @@ public class WebSocketListener {
             }
             String peerSessions = sessionIdList.stream().collect(Collectors.joining(","));
             peer.getBasicRemote().sendText(Json.createObjectBuilder().add("type", "query_peer").add("peerSessionIds", peerSessions).build().toString());
-        break;
+            break;
 
         case "close":
             peer.close();
+           break;
         }
     }
 }

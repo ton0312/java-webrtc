@@ -6,12 +6,33 @@ var sendButton = document.getElementById("sendButton");
 var sendTextarea = document.getElementById("dataChannelSend");
 var receiveTextarea = document.getElementById("dataChannelReceive");
 
+
+var fileInput = document.querySelector('input#fileInput');
+var downloadDiv = document.querySelector('a#received');
+var sendProgress = document.querySelector('progress#sendProgress');
+var receiveProgress = document.querySelector('progress#receiveProgress');
+
+var receiveBuffer = [];
+var receivedSize = 0;
+var filesize = 0;
+
+var bytesPrev = 0;
+var timestampPrev = 0;
+var timestampStart;
+
+
+fileInput.addEventListener('change', createFileChannel, false);
+
+
+
 sendButton.onclick = sendData;
 var labelId = 0;
 
 var localStream;
 var connections = {};
 var datachannels = {};
+var filesize = {};
+var fileName = {};
 
 var room = '/server/1';
 var mediaConstraints = {
@@ -92,6 +113,11 @@ socket.onmessage = function(message) {
     connections[sessionId].addIceCandidate(candidate);
     break;
 
+  case 'send_file':
+    var sessionId = msg.sessionId;
+    filesize[sessionId] = msg.fileSize;
+    fileName[sessionId] = msg.fileName;
+    break;
   case 'query_peer':
     console.log("received query_peer");
     var peerSessionIds = msg.peerSessionIds;
@@ -180,7 +206,52 @@ function createConnection(sessionId) {
     enableMessageInterface(readyState == "open");
   };
 
-  peerConnection.ondatachannel = gotReceiveChannel;
+  peerConnection.ondatachannel = function(event){
+    trace('Receive Channel Callback');
+      var receiveChannel = event.channel;
+      if(receiveChannel.label == 'sendFileDataChannel') {
+        receiveChannel.binaryType = 'arraybuffer';
+        receiveChannel.onmessage = function(event){
+          console.log('receive file chunk ');
+            receiveBuffer.push(event.data);
+            receivedSize += event.data.byteLength;
+
+            receiveProgress.value = receivedSize;
+            console.log('received size ' + receivedSize);
+            console.log('filesize ' + filesize[sessionId]);
+
+            // we are assuming that our signaling protocol told
+            // about the expected file size (and name, hash, etc).
+            if (receivedSize  == filesize[sessionId]) {
+              console.log('finished the received process');
+              var received = new window.Blob(receiveBuffer);
+              receiveBuffer = [];
+
+              downloadDiv.href = URL.createObjectURL(received);
+              downloadDiv.download = fileName[sessionId];
+              var text = 'Click to download \'' + fileName[sessionId] + '\' (' + filesize[sessionId] +
+                  ' bytes)';
+              downloadDiv.appendChild(document.createTextNode(text));
+              downloadDiv.style.display = 'block';
+            }
+
+        };
+        receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);;
+        receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);;
+
+        receivedSize = 0;
+        downloadDiv.innerHTML = '';
+        downloadDiv.removeAttribute('download');
+        if (downloadDiv.href) {
+          URL.revokeObjectURL(downloadDiv.href);
+          downloadDiv.removeAttribute('href');
+        }
+      } else {
+        receiveChannel.onmessage = handleMessage;
+        receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);
+        receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);
+      }
+  };
   return peerConnection
 }
 
@@ -209,10 +280,53 @@ function handleMessage(event) {
 function gotReceiveChannel(event) {
     trace('Receive Channel Callback');
     var receiveChannel = event.channel;
-    receiveChannel.onmessage = handleMessage;
-    receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);
-    receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);
+    if(receiveChannel.label == 'sendFileDataChannel') {
+      receiveChannel.binaryType = 'arraybuffer';
+      receiveChannel.onmessage = onReceiveMessageCallback;
+      receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);;
+      receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);;
+
+      receivedSize = 0;
+      downloadDiv.innerHTML = '';
+      downloadDiv.removeAttribute('download');
+      if (downloadDiv.href) {
+        URL.revokeObjectURL(downloadDiv.href);
+        downloadDiv.removeAttribute('href');
+      }
+    } else {
+      receiveChannel.onmessage = handleMessage;
+      receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);
+      receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);
+    }
+
+
   }
+
+
+function onReceiveMessageCallback(event) {
+    //trace('Received Message ' + event.data.byteLength);
+    receiveBuffer.push(event.data);
+    receivedSize += event.data.byteLength;
+
+    receiveProgress.value = receivedSize;
+
+    // we are assuming that our signaling protocol told
+    // about the expected file size (and name, hash, etc).
+    if (receivedSize * 2 === file.size) {
+      var received = new window.Blob(receiveBuffer);
+      receiveBuffer = [];
+
+      downloadDiv.href = URL.createObjectURL(received);
+      downloadDiv.download = "new file ";
+      var text = 'Click to download \'' + "new file" + '\' (' + " 123K" +
+          ' bytes)';
+      downloadDiv.appendChild(document.createTextNode(text));
+      downloadDiv.style.display = 'block';
+
+    }
+  }
+
+
 
 function handleReceiveChannelStateChange(receiveChannel) {
   var readyState = receiveChannel.readyState;
@@ -312,6 +426,71 @@ function sendData() {
     sendTextarea.value = '';
   }
 
+
+function createFileChannel() {
+
+  for(var prop in connections){
+        if(connections.hasOwnProperty(prop)){
+            console.log('key is ' + prop +' and value is' + connections[prop]);
+            var sendChannel = connections[prop].createDataChannel('sendFileDataChannel');
+            sendChannel.binaryType = 'arraybuffer';
+            trace('Created send file channel');
+            sendChannel.onopen = onSendChannelStateChange(sendChannel);
+            sendChannel.onclose = onSendChannelStateClosed(sendChannel);
+        }
+    }
+  }
+
+function onSendChannelStateChange(sendChannel) {
+    var readyState = sendChannel.readyState;
+    trace('Send channel state is: ' + readyState);
+    if (readyState === 'open') {
+      sendFile(sendChannel);
+    }
+  }
+
+function onSendChannelStateClosed(sendChannel) {
+  var readyState = sendChannel.readyState;
+  trace('Send channel state is: ' + readyState);
+}
+
+
+function sendFile(sendChannel) {
+    var file = fileInput.files[0];
+    trace('file is ' + [file.name, file.size, file.type,
+        file.lastModifiedDate].join(' '));
+    if (file.size === 0) {
+      return;
+    }
+    socket.send(JSON.stringify({
+      type : 'send_file',
+      sessionId : socket.sessionId,
+      fileSize : file.size,
+      fileName : file.name
+    }));
+    sendProgress.max = file.size;
+    receiveProgress.max = file.size;
+    var chunkSize = 16384;
+    var sliceFile = function(offset) {
+      var reader = new window.FileReader();
+      reader.onload = (function() {
+      console.log('onload 1');
+        return function(e) {
+          console.log(offset + chunkSize);
+          sendChannel.send(e.target.result);
+          if (file.size > offset + e.target.result.byteLength) {
+            window.setTimeout(sliceFile, 0, offset + chunkSize);
+          }
+          sendProgress.value = offset + e.target.result.byteLength;
+        };
+      })(file);
+      console.log('offset 2' + offset);
+      var slice = file.slice(offset, offset + chunkSize);
+      reader.readAsArrayBuffer(slice);
+      console.log('read 3' + offset);
+    };
+    sliceFile(0);
+  }
 
 
 function gotRemoteStream(event){
