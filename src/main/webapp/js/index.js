@@ -19,7 +19,14 @@ var filesize = 0;
 var bytesPrev = 0;
 var timestampPrev = 0;
 var timestampStart;
+var videoConstrain = true;
+var retry = true;
 
+var pc_constraints = {
+        'optional': [
+          {'DtlsSrtpKeyAgreement': true},
+          {'RtpDataChannels': true}
+        ]};
 
 fileInput.addEventListener('change', createFileChannel, false);
 
@@ -71,6 +78,7 @@ socket.onmessage = function(message) {
     connections[sessionId].setRemoteDescription(new RTCSessionDescription(msg.data));
     connections[sessionId].createAnswer(function(description) {
       console.log('sending answer');
+//      setLocalSessionDescription(connections[sessionId],description);
       connections[sessionId].setLocalDescription(description);
       socket.send(JSON.stringify({
         type : 'received_answer',
@@ -78,7 +86,7 @@ socket.onmessage = function(message) {
         sessionId : socket.sessionId,
         peerSessionId : sessionId
       }));
-    }, null, mediaConstraints);
+    }, handleError, mediaConstraints);
     getVideoElement(sessionId);
     break;
   case 'received_answer':
@@ -157,6 +165,7 @@ socket.onmessage = function(message) {
 
 function createOffer(currentConnection,peerId) {
   currentConnection.createOffer(function(description) {
+//    setLocalSessionDescription(currentConnection,description);
         currentConnection.setLocalDescription(description);
         socket.send(JSON.stringify({
         type : 'received_offer',
@@ -166,6 +175,13 @@ function createOffer(currentConnection,peerId) {
           }));
         },handleError,mediaConstraints);
 }
+
+function setLocalSessionDescription(peerConnection,sessionDescription) {
+    // Set Opus as the preferred codec in SDP if Opus is present.
+    sessionDescription.sdp = preferOpus(sessionDescription.sdp);
+    peerConnection.setLocalDescription(sessionDescription);
+  }
+
 
 function createConnection(sessionId) {
   console.log('create connection ' + sessionId);
@@ -189,12 +205,12 @@ function createConnection(sessionId) {
     }
   peerConnection.onaddstream = function(e) {
     var remoteVideo = getVideoElement(sessionId)
-    attachMediaStream(remoteVideo, event.stream);
+    attachMediaStream(remoteVideo, e.stream);
     trace("Received remote stream");
   };
   var sendChannel = peerConnection.createDataChannel("",{reliable: false});
   datachannels[sessionId] = sendChannel;
-  sendChannel.onmessage = handleMessage;
+//  sendChannel.onmessage = handleMessage;
   sendChannel.onopen = function() {
     var readyState = sendChannel.readyState;
     trace('Send channel state is: ' + readyState);
@@ -247,7 +263,14 @@ function createConnection(sessionId) {
           downloadDiv.removeAttribute('href');
         }
       } else {
-        receiveChannel.onmessage = handleMessage;
+        receiveChannel.onmessage = function(event) {
+            trace('Received message: ' + event.data);
+            var newLine = document.createElement('label');
+            newLine.id =labelId;
+            labelId +=1;
+            newLine.innerHTML = sessionId + ': ' +event.data + '\n';
+            receiveTextarea.appendChild(newLine);
+          };
         receiveChannel.onopen = handleReceiveChannelStateChange(receiveChannel);
         receiveChannel.onclose = handleReceiveChannelStateChange(receiveChannel);
       }
@@ -326,8 +349,6 @@ function onReceiveMessageCallback(event) {
     }
   }
 
-
-
 function handleReceiveChannelStateChange(receiveChannel) {
   var readyState = receiveChannel.readyState;
   trace('Receive channel state is: ' + readyState);
@@ -343,7 +364,7 @@ function getVideoElement(sessionId) {
         remoteVideo.id = sessionId;
         remoteVideo.setAttribute('autoplay',true);
 //        remoteVideo.setAttribute('muted',false);
-//        remoteVideo.setAttribute('volume',0);
+        remoteVideo.setAttribute('volume',10);
         remoteVideo.setAttribute('controls',true);
         document.getElementById('remoteVideo').appendChild(remoteVideo);
       }
@@ -366,8 +387,18 @@ function initLocalMedia() {
     video : true
   }, gotStream, function(e) {
     console.log('getUserMedia() error: ', e);
+    console.log(' ' + e.name);
+    console.log(' ' + videoConstrain);
+    /*if(e.name && e.name == 'DevicesNotFoundError' && retry == true) {
+      console.log('retry ');
+      retry = false;
+      videoConstrain = false;
+      initLocalMedia();
+    }*/
     waittingForWebSocket(socket,queryPeer);
   });
+  console.log('muted ' + localVideo.muted);
+  console.log('volume ' + localVideo.volume);
 }
 
 function gotStream(stream) {
@@ -421,7 +452,7 @@ function sendData() {
     newLine.id =labelId;
     labelId +=1;
     newLine.style.color='LightSkyBlue ';
-    newLine.innerHTML = data + '\n';
+    newLine.innerHTML = socket.sessionId + ': ' + data + '\n';
     receiveTextarea.appendChild(newLine);
     sendTextarea.value = '';
   }
@@ -498,10 +529,89 @@ function gotRemoteStream(event){
   remoteVideo.id = remoteVideoId;
   remoteVideoId = remoteVideoId + 1;
   remoteVideo.setAttribute('autoplay',true);
-  remoteVideo.setAttribute('muted',true);
+//  remoteVideo.setAttribute('muted',true);
   document.getElementById('remoteVideo').appendChild(remoteVideo);
   attachMediaStream(remoteVideo, event.stream);
   trace("Received remote stream");
 }
 
 function handleError(){}
+
+
+///////////////////////////////////////////
+
+// Set Opus as the default audio codec if it's present.
+function preferOpus(sdp) {
+  var sdpLines = sdp.split('\r\n');
+  var mLineIndex;
+  // Search for m line.
+  for (var i = 0; i < sdpLines.length; i++) {
+    if (sdpLines[i].search('m=audio') !== -1) {
+      mLineIndex = i;
+      break;
+    }
+  }
+  if (mLineIndex === null) {
+    return sdp;
+  }
+
+  // If Opus is available, set it as the default in m line.
+  for (i = 0; i < sdpLines.length; i++) {
+    if (sdpLines[i].search('opus/48000') !== -1) {
+      var opusPayload = extractSdp(sdpLines[i], /:(\d+) opus\/48000/i);
+      if (opusPayload) {
+        sdpLines[mLineIndex] = setDefaultCodec(sdpLines[mLineIndex],
+            opusPayload);
+      }
+      break;
+    }
+  }
+
+  // Remove CN in m line and sdp.
+  sdpLines = removeCN(sdpLines, mLineIndex);
+
+  sdp = sdpLines.join('\r\n');
+  return sdp;
+}
+
+function extractSdp(sdpLine, pattern) {
+  var result = sdpLine.match(pattern);
+  return result && result.length === 2 ? result[1] : null;
+}
+
+// Set the selected codec to the first in m line.
+function setDefaultCodec(mLine, payload) {
+  var elements = mLine.split(' ');
+  var newLine = [];
+  var index = 0;
+  for (var i = 0; i < elements.length; i++) {
+    if (index === 3) { // Format of media starts from the fourth.
+      newLine[index++] = payload; // Put target payload to the first.
+    }
+    if (elements[i] !== payload) {
+      newLine[index++] = elements[i];
+    }
+  }
+  return newLine.join(' ');
+}
+
+// Strip CN from sdp before CN constraints is ready.
+function removeCN(sdpLines, mLineIndex) {
+  var mLineElements = sdpLines[mLineIndex].split(' ');
+  // Scan from end for the convenience of removing an item.
+  for (var i = sdpLines.length - 1; i >= 0; i--) {
+    var payload = extractSdp(sdpLines[i], /a=rtpmap:(\d+) CN\/\d+/i);
+    if (payload) {
+      var cnPos = mLineElements.indexOf(payload);
+      if (cnPos !== -1) {
+        // Remove CN payload from m line.
+        mLineElements.splice(cnPos, 1);
+      }
+      // Remove CN line in sdp
+      sdpLines.splice(i, 1);
+    }
+  }
+
+  sdpLines[mLineIndex] = mLineElements.join(' ');
+  return sdpLines;
+}
